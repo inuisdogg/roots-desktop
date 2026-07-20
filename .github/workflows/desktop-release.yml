@@ -55,15 +55,17 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 証明書のないCIでは mac の ad-hoc 署名が `⨯ … not a file` で落ちるため、署名を明示スキップ
-          # (未署名配布=初回起動で警告)。CSC_LINK を設定すれば下の自動探索が有効化され署名される。
+          # 【重要】mac は未署名配布。証明書を持たないCIでは署名を明示スキップする。
+          #   ローカル実測で確定した挙動:
+          #     - CSC_KEY_PASSWORD が「空文字で定義済み」だと electron-builder は署名スキップではなく
+          #       “空パスワード署名”に倒れ、薄いuniversalアプリで `⨯ … not a file` で必ず落ちる。
+          #     - secrets 未設定の `${{ secrets.CSC_LINK }}` は空文字を“定義済み”で注入してしまう。
+          #   → 空を注入しないよう mac 署名系 env は「渡さない」。CSC_IDENTITY_AUTO_DISCOVERY=false で
+          #     クリーンに署名スキップ → dmg/zip が生成される(実測 EXIT=0)。
+          #   将来 Apple Developer ID 証明書で実署名する時は、CSC_LINK/CSC_KEY_PASSWORD(と公証用
+          #   APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID)を secrets に入れ、下の env に足して
+          #   CSC_IDENTITY_AUTO_DISCOVERY を外す(または true)。
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # macOS 署名・公証(secrets 未設定なら未署名でビルド継続)
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows 署名
+          # Windows 署名(未設定でも未署名 nsis でビルド継続。Windows は空でも問題なくビルド実績あり)
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
