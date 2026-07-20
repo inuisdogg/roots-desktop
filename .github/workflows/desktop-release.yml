@@ -36,7 +36,10 @@ jobs:
       fail-fast: false   # 片方のOSが落ちても、もう片方の成果物は生成・publishする
       matrix:
         include:
-          - os: macos-latest
+          # macos-latest は macOS 26 に上がり、electron-builder 25 の ad-hoc署名が
+          # `⨯ … not a file` で落ちる。ローカル(macOS 15)で成功する universal ビルドに
+          # 合わせ、検証済みの macos-15 に固定する(署名証明書を入れるまでの措置)。
+          - os: macos-15
             platform: mac
           - os: windows-latest
             platform: win
