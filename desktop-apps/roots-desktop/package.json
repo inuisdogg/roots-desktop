@@ -1,0 +1,30 @@
+{
+  "name": "roots-desktop",
+  "productName": "ROOTS",
+  "version": "1.0.0",
+  "description": "ROOTS デスクトップアプリ (Windows / macOS)。既存のWebアプリ(rootshub.jp)をネイティブの殻で包み、自動アップデートに対応する薄いシェル。",
+  "author": {
+    "name": "inu Inc.",
+    "email": "hatake@inu.co.jp"
+  },
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env ROOTS_DESKTOP_URL=http://localhost:3000 electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder -mw",
+    "release": "electron-builder -mw --publish always",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

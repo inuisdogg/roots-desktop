@@ -1,0 +1,60 @@
+# ============================================================================
+# electron-builder 設定 — ROOTS デスクトップ (Windows / macOS)
+#   publish=github: ビルド成果物を GitHub Releases に上げ、electron-updater がそこを
+#   配信元として自動アップデートする。リリースは CI(.github/workflows/desktop-release.yml)で実行。
+# ============================================================================
+appId: jp.co.inu.roots.desktop
+productName: ROOTS
+copyright: © inu Inc.
+
+directories:
+  buildResources: build
+  output: dist
+
+# 殻は薄いので同梱物は最小限(main/preload/アイコン)。中身は Web(rootshub.jp)を読む。
+files:
+  - main.js
+  - preload.js
+  - package.json
+  - build/icon.png
+
+# 自動アップデートの配信元(GitHub Releases)。owner/repo は実リポジトリ。
+publish:
+  provider: github
+  owner: inuisdogg
+  repo: roots-desktop
+  releaseType: release
+
+mac:
+  category: public.app-category.business
+  icon: build/icon.png
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # 版が上がってもダウンロードURLが変わらないよう、成果物名からバージョンを外す
+  # (GitHub Releases の latest/download/ROOTS-mac.dmg を常に指せる)。universal=Intel/Apple Silicon両対応の1本。
+  artifactName: ROOTS-mac.${ext}
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip        # zip は electron-updater(mac)の差分/フル更新に必要
+      arch: universal
+
+dmg:
+  title: ROOTS ${version}
+
+win:
+  icon: build/icon.png
+  artifactName: ROOTS-win.${ext}
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: ROOTS
