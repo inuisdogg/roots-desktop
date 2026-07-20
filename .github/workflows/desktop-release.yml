@@ -33,6 +33,7 @@ defaults:
 jobs:
   build:
     strategy:
+      fail-fast: false   # 片方のOSが落ちても、もう片方の成果物は生成・publishする
       matrix:
         include:
           - os: macos-latest
@@ -51,6 +52,9 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 証明書のないCIでは mac の ad-hoc 署名が `⨯ … not a file` で落ちるため、署名を明示スキップ
+          # (未署名配布=初回起動で警告)。CSC_LINK を設定すれば下の自動探索が有効化され署名される。
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           # macOS 署名・公証(secrets 未設定なら未署名でビルド継続)
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
