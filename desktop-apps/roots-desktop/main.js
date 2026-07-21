@@ -12,7 +12,7 @@
 //   - 環境変数 ROOTS_DESKTOP_URL で上書き(dev で http://localhost:3000 等を指す)
 // ============================================================================
 
-const { app, BrowserWindow, Menu, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -170,30 +170,46 @@ function buildMenu() {
 }
 
 // ---- 自動アップデート(electron-updater / GitHub Releases) ------------------
+// 配信元 = GitHub Releases(inuisdogg/roots-desktop・electron-builder.yml の publish 設定で自動注入)。
 // パッケージ版でのみ動作。dev(未パッケージ)ではスキップ。
+//
+// ユーザー体験の方針(邪魔をしない自動更新):
+//   - 起動時に確認 + 4時間ごとに再確認。
+//   - 見つかったら裏でダウンロード(autoDownload)。ダイアログは出さない。
+//   - ダウンロード完了時は「アプリ終了時に自動インストール」(autoInstallOnAppQuit)。
+//     次回起動時には勝手に最新版になっている(ユーザー操作ゼロ)。
+//   - 完了時に控えめなOS通知を1回だけ出す(クリック不要・作業を中断しない)。
+//   - オフライン/エラーは静かに握りつぶす(業務中に警告を出さない)。
+// メニューの「更新を確認…」だけは明示操作なので、その時だけ結果ダイアログを返す。
 let autoUpdater = null;
 function initUpdater() {
   if (IS_DEV) return;
   try {
     ({ autoUpdater } = require('electron-updater'));
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = true;            // 見つけたら裏で自動ダウンロード
+    autoUpdater.autoInstallOnAppQuit = true;    // 終了時に自動インストール(次回起動で最新)
     autoUpdater.on('update-downloaded', (info) => {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        buttons: ['再起動して更新', 'あとで'],
-        defaultId: 0,
-        cancelId: 1,
-        title: '更新の準備ができました',
-        message: `新しいバージョン ${info?.version ?? ''} をダウンロードしました。`,
-        detail: '再起動すると更新が適用されます。',
-      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+      // 邪魔なダイアログは出さない。控えめなOS通知だけ(対応環境のみ)。
+      try {
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'ROOTS の更新を準備しました',
+            body: `次回起動時に最新版(${info?.version ?? ''})へ自動で更新されます。`,
+            silent: true,
+          }).show();
+        }
+      } catch { /* 通知失敗は無視 */ }
     });
-    autoUpdater.on('error', (err) => { console.error('[updater]', err); });
-    // 起動時 + 6時間ごとに確認。
-    autoUpdater.checkForUpdates();
-    setInterval(() => autoUpdater.checkForUpdates(), 6 * 60 * 60 * 1000);
+    // オフライン・レート制限・署名検証失敗などは業務中に出さず、ログのみ。
+    autoUpdater.on('error', (err) => { console.error('[updater]', err && err.message ? err.message : err); });
+    // 起動時 + 4時間ごとに確認(オフライン時は catch で静かに失敗)。
+    autoUpdater.checkForUpdates().catch((e) => console.error('[updater] check failed', e && e.message ? e.message : e));
+    setInterval(() => {
+      autoUpdater.checkForUpdates().catch((e) => console.error('[updater] check failed', e && e.message ? e.message : e));
+    }, 4 * 60 * 60 * 1000);
   } catch (e) { console.error('[updater] init failed', e); }
 }
+// メニューの「更新を確認…」(明示操作)。ここだけは結果をダイアログで返す。
 function checkForUpdates(interactive) {
   if (IS_DEV) {
     if (interactive) dialog.showMessageBox(mainWindow, { message: '開発版では更新確認は行いません。', buttons: ['OK'] });
@@ -204,7 +220,10 @@ function checkForUpdates(interactive) {
     if (interactive && !r?.updateInfo) {
       dialog.showMessageBox(mainWindow, { message: '最新版をご利用中です。', buttons: ['OK'] });
     }
-  }).catch(() => {});
+  }).catch((e) => {
+    if (interactive) dialog.showMessageBox(mainWindow, { message: '更新の確認に失敗しました。ネットワーク接続をご確認ください。', buttons: ['OK'] });
+    else console.error('[updater] manual check failed', e && e.message ? e.message : e);
+  });
 }
 
 // ---- ライフサイクル --------------------------------------------------------
