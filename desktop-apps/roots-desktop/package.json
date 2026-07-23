@@ -1,7 +1,7 @@
 {
   "name": "roots-desktop",
   "productName": "ROOTS",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "ROOTS デスクトップアプリ (Windows / macOS)。既存のWebアプリ(rootshub.jp)をネイティブの殻で包み、自動アップデートに対応する薄いシェル。",
   "author": {
     "name": "inu Inc.",

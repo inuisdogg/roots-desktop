@@ -12,7 +12,7 @@
 //   - 環境変数 ROOTS_DESKTOP_URL で上書き(dev で http://localhost:3000 等を指す)
 // ============================================================================
 
-const { app, BrowserWindow, Menu, shell, dialog, Notification } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, Notification, ipcMain } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -29,6 +29,44 @@ if (!gotLock) { app.quit(); }
 app.setAppUserModelId('jp.co.inu.roots.desktop');
 
 let mainWindow = null;
+
+// ---- 履歴ナビゲーション(戻る/進む) --------------------------------------
+// Web アプリ側に戻る導線が無い画面でも、殻(デスクトップ)側で必ず戻れるようにする。
+//   - 判定/実行の正本 = webContents.navigationHistory(Electron 30+ の現行 API)。
+//   - preload が注入する左上のオーバーレイボタンへ canGoBack を IPC で通知し、表示を出し分ける。
+//   - メニューのアクセラレータ、マウスの戻る/進むボタンからも同じ関数を叩く。
+function navHistory(wc) {
+  // Electron 30+ は webContents.navigationHistory。古い API へのフォールバックも持つ。
+  return (wc && wc.navigationHistory) || null;
+}
+function canGoBack(wc) {
+  const h = navHistory(wc);
+  if (h && typeof h.canGoBack === 'function') return h.canGoBack();
+  return !!(wc && typeof wc.canGoBack === 'function' && wc.canGoBack());
+}
+function canGoForward(wc) {
+  const h = navHistory(wc);
+  if (h && typeof h.canGoForward === 'function') return h.canGoForward();
+  return !!(wc && typeof wc.canGoForward === 'function' && wc.canGoForward());
+}
+function goBack(wc) {
+  if (!wc || !canGoBack(wc)) return;
+  const h = navHistory(wc);
+  if (h && typeof h.goBack === 'function') h.goBack();
+  else if (typeof wc.goBack === 'function') wc.goBack();
+}
+function goForward(wc) {
+  if (!wc || !canGoForward(wc)) return;
+  const h = navHistory(wc);
+  if (h && typeof h.goForward === 'function') h.goForward();
+  else if (typeof wc.goForward === 'function') wc.goForward();
+}
+// 現在の canGoBack を preload(オーバーレイボタン)へ通知して表示を出し分ける。
+function sendCanGoBack(wc) {
+  try {
+    if (wc && !wc.isDestroyed()) wc.send('roots-nav:can-go-back', canGoBack(wc));
+  } catch { /* noop */ }
+}
 
 // ---- ウィンドウ位置・サイズの永続化(次回起動時に復元) --------------------
 const stateFile = path.join(app.getPath('userData'), 'window-state.json');
@@ -89,6 +127,32 @@ function createWindow() {
     } catch { /* noop */ }
   });
 
+  // ---- 戻る/進むの配線 ----------------------------------------------------
+  const wc = mainWindow.webContents;
+
+  // preload からの要求(戻る実行 / 現在値の問い合わせ)を受ける。
+  // 複数ウィンドウでも取り違えないよう、送信元 frame の webContents を対象にする。
+  ipcMain.on('roots-nav:back', (e) => goBack(e.sender));
+  ipcMain.on('roots-nav:query-can-go-back', (e) => sendCanGoBack(e.sender));
+
+  // 遷移のたびに canGoBack をオーバーレイボタンへ再通知(SPA/通常遷移の両方を拾う)。
+  wc.on('did-navigate', () => sendCanGoBack(wc));
+  wc.on('did-navigate-in-page', () => sendCanGoBack(wc));       // SPA(pushState)対応
+  wc.on('did-frame-navigate', () => sendCanGoBack(wc));
+
+  // マウスの「戻る/進む」ボタン。
+  //   - Windows/Linux = app-command('browser-backward' / 'browser-forward')。
+  //   - macOS = swipe(3本指)や一部マウスは app-command が来ないため、後述の before-input-event でも拾う。
+  wc.on('app-command', (e, cmd) => {
+    if (cmd === 'browser-backward') { goBack(wc); e.preventDefault(); }
+    else if (cmd === 'browser-forward') { goForward(wc); e.preventDefault(); }
+  });
+  // macOS のトラックパッド横スワイプ。
+  mainWindow.on('swipe', (_e, dir) => {
+    if (dir === 'left') goBack(wc);
+    else if (dir === 'right') goForward(wc);
+  });
+
   // 読み込み失敗(オフライン等)時のフォールバック表示。
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, validatedURL, isMainFrame) => {
     if (!isMainFrame || code === -3 /* ABORTED */) return;
@@ -146,6 +210,33 @@ function buildMenu() {
     {
       label: '表示',
       submenu: [
+        {
+          label: '戻る',
+          // CmdOrCtrl+[ を主に、Alt+Left(Win 慣習)も併記。
+          accelerator: 'CmdOrCtrl+[',
+          click: () => { const w = BrowserWindow.getFocusedWindow(); if (w) goBack(w.webContents); },
+        },
+        {
+          label: '進む',
+          accelerator: 'CmdOrCtrl+]',
+          click: () => { const w = BrowserWindow.getFocusedWindow(); if (w) goForward(w.webContents); },
+        },
+        // Alt+Left / Alt+Right(Windows/一般ブラウザの慣習)も同じ動作に割り当てる。
+        {
+          label: '戻る (Alt+←)',
+          accelerator: 'Alt+Left',
+          visible: false,          // メニューには出さず、ショートカットだけ有効化。
+          acceleratorWorksWhenHidden: true,
+          click: () => { const w = BrowserWindow.getFocusedWindow(); if (w) goBack(w.webContents); },
+        },
+        {
+          label: '進む (Alt+→)',
+          accelerator: 'Alt+Right',
+          visible: false,
+          acceleratorWorksWhenHidden: true,
+          click: () => { const w = BrowserWindow.getFocusedWindow(); if (w) goForward(w.webContents); },
+        },
+        { type: 'separator' },
         { role: 'reload', label: '再読み込み' },
         { role: 'forceReload', label: '強制的に再読み込み' },
         { type: 'separator' },
